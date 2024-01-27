@@ -16,7 +16,7 @@ import colorOptions from "../utils/colorOptions";
 import SuccessModal from "../components/SuccessModal";
 import axios from "axios";
 import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
+import * as htmlToImage from "html-to-image";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
@@ -26,6 +26,8 @@ const InvoicehtmlForm = () => {
   const [saveButtonText, setSaveButtonText] = useState("Save");
   const [modalIndex, setModalIndex] = useState(0);
   const [deposits, setDeposits] = useState([]);
+  const [selectedCemetery, setSelectedCemetery] = useState("");
+  const [customCemetery, setCustomCemetery] = useState("");
   const location = useLocation();
 
   const navigate = useNavigate();
@@ -131,6 +133,14 @@ const InvoicehtmlForm = () => {
       if (location.state?.deposits) {
         setDeposits(location.state?.deposits);
       }
+      if (location.state?.data?.customCemetery) {
+        setSelectedCemetery("Other");
+        setCustomCemetery(location.state.data.customCemetery);
+        setFormData((prevData) => ({
+          ...prevData,
+          cemetery: "Other", // Set formData.cemetery to "Other"
+        }));
+      }
     }
   }, [location.state]);
 
@@ -189,16 +199,45 @@ const InvoicehtmlForm = () => {
 
     // Fetch and update cemetery data if cemetery is selected
     if (name === "cemetery") {
-      const selectedCemeteryData = getCemeteryDataByName(value);
-      if (selectedCemeteryData) {
-        updatedFormData = {
-          ...updatedFormData,
-          cemeteryAddress: selectedCemeteryData.ADDRESS,
-          cemeteryContact: selectedCemeteryData.CONTACT_NAME,
-          Cemeteryphone: selectedCemeteryData.PHONE,
-          zone: selectedCemeteryData.Zone,
-        };
+      if (value !== "Other") {
+        const selectedCemeteryData = getCemeteryDataByName(value);
+        setSelectedCemetery(value);
+        if (selectedCemeteryData) {
+          updatedFormData = {
+            ...updatedFormData,
+            cemeteryAddress: selectedCemeteryData.ADDRESS,
+            cemeteryContact: selectedCemeteryData.CONTACT_NAME,
+            Cemeteryphone: selectedCemeteryData.PHONE,
+            zone: selectedCemeteryData.Zone,
+          };
+        }
+      } else {
+        setSelectedCemetery(value);
       }
+    }
+
+    if (name === "customCemetery") {
+      setCustomCemetery(value);
+      // Update formData.cemetery when "Other" is selected
+      updatedFormData = {
+        ...updatedFormData,
+        customCemetery: value, // Update formData.cemetery here
+      };
+    }
+
+    if (name === "deposit") {
+      const total = parseFloat(formData.total) || 0;
+      // Calculate sum of deposit amounts
+      const depositSum = deposits.reduce(
+        (accumulator, currentDeposit) =>
+          accumulator + parseFloat(currentDeposit.depositAmount || 0),
+        0
+      );
+
+      // Compute the balance
+      const balance = total - depositSum - updatedFormData.deposit;
+
+      updatedFormData.balance = balance;
     }
 
     // Calculate subtotal when modelQty or modelPrice changes for all 4 models
@@ -285,109 +324,133 @@ const InvoicehtmlForm = () => {
   }, [deposits, formData.total]);
 
   const captureFormSnapshot = async () => {
-    setSaveButtonText("Saving..");
     const pdf = new jsPDF({
       unit: "mm", // Use millimeters as the unit of measurement
       format: "a4", // Set the paper size to A4
     });
 
-    // Capture the form as an image using html2canvas
-    const canvas = await html2canvas(document.getElementById("invoice-form"));
+    // Capture the form as an image using html-to-image
+    const element = document.getElementById("invoice-form");
+    const imageDataUrl = await htmlToImage.toPng(element);
 
-    // Get the width and height of the canvas element
-    const canvasWidth = canvas.width;
-    const canvasHeight = canvas.height;
+    // Create an Image object for the captured image
+    const img = new Image();
+    img.src = imageDataUrl;
 
-    // Calculate the aspect ratio to fit the canvas within the A4 paper size
-    const aspectRatio = canvasWidth / canvasHeight;
+    img.onload = async function () {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
 
-    // Calculate the width and height of the image in the PDF
-    let pdfWidth = 190; // A4 paper width in millimeters
-    let pdfHeight = pdfWidth / aspectRatio;
+      // Get the width and height of the captured image
+      const canvasWidth = canvas.width;
+      const canvasHeight = canvas.height;
 
-    // Ensure that the image fits within the A4 paper size
-    if (pdfHeight > 277) {
-      pdfHeight = 277; // A4 paper height in millimeters
-      pdfWidth = pdfHeight * aspectRatio;
-    }
+      // Calculate the aspect ratio to fit the canvas within the A4 paper size
+      const aspectRatio = canvasWidth / canvasHeight;
 
-    // Calculate the center position to place the image on the A4 page
-    const xPosition = (210 - pdfWidth) / 2; // A4 paper width is 210mm
-    const yPosition = (297 - pdfHeight) / 2; // A4 paper height is 297mm
+      // Calculate the width and height of the image in the PDF
+      let pdfWidth = 190; // A4 paper width in millimeters
+      let pdfHeight = pdfWidth / aspectRatio;
 
-    // Convert the captured image to a data URL
-    const imageData = canvas.toDataURL("image/png");
-
-    // Add the captured image to the PDF
-    pdf.addImage(imageData, "PNG", xPosition, yPosition, pdfWidth, pdfHeight);
-
-    // Save the PDF as a blob
-    const pdfBlob = pdf.output("blob");
-
-    // Create a FormData object to send the blob to the backend
-    const finalFormData = new FormData();
-    finalFormData.append("pdf", pdfBlob, "invoice.pdf");
-    // Append each field of formData to finalFormData
-    for (const key in formData) {
-      if (formData.hasOwnProperty(key)) {
-        finalFormData.append(key, formData[key]);
+      // Ensure that the image fits within the A4 paper size
+      if (pdfHeight > 277) {
+        pdfHeight = 277; // A4 paper height in millimeters
+        pdfWidth = pdfHeight * aspectRatio;
       }
-    }
 
-    try {
-      // Make an API call to save the PDF and additional data on the backend
-      const response = await axios.post(
-        `${process.env.REACT_APP_API_URL}/save-invoice`, // Replace with your backend API endpoint
-        finalFormData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-            "ngrok-skip-browser-warning": "69420",
-          },
-        }
+      // Calculate the center position to place the image on the A4 page
+      const xPosition = (210 - pdfWidth) / 2; // A4 paper width is 210mm
+      const yPosition = (297 - pdfHeight) / 2; // A4 paper height is 297mm
+
+      // Add the captured image to the PDF
+      pdf.addImage(
+        imageDataUrl,
+        "PNG",
+        xPosition,
+        yPosition,
+        pdfWidth,
+        pdfHeight
       );
 
-      if (response.status === 200) {
-        // Success, you can handle it as needed
-        console.log("PDF and data saved successfully");
-        // Show success modal
-        handleSuccessModalOpen();
-        setSaveButtonText("Saved");
-      } else {
-        console.error("Failed to save PDF and data");
+      // Save the PDF as a blob
+      const pdfBlob = pdf.output("blob");
+
+      //delete custom Cemetery
+      if (selectedCemetery !== "Other") {
+        delete formData?.customCemetery;
+      }
+
+      // Create a FormData object to send the blob to the backend
+      const finalFormData = new FormData();
+      finalFormData.append("pdf", pdfBlob, "invoice.pdf");
+      // Append each field of formData to finalFormData
+      for (const key in formData) {
+        if (formData.hasOwnProperty(key)) {
+          finalFormData.append(key, formData[key]);
+        }
+      }
+
+      try {
+        // Make an API call to save the PDF and additional data on the backend
+        const response = await axios.post(
+          `${process.env.REACT_APP_API_URL}/save-invoice`, // Replace with your backend API endpoint
+          finalFormData,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+              "ngrok-skip-browser-warning": "69420",
+            },
+          }
+        );
+
+        if (response.status === 200) {
+          // Success, you can handle it as needed
+          console.log("PDF and data saved successfully");
+          // Show success modal
+          handleSuccessModalOpen();
+          setSaveButtonText("Saved");
+        } else {
+          console.error("Failed to save PDF and data");
+          setSaveButtonText("Save");
+        }
+      } catch (error) {
+        console.error("Error while saving PDF and data:", error);
         setSaveButtonText("Save");
       }
-    } catch (error) {
-      console.error("Error while saving PDF and data:", error);
-      setSaveButtonText("Save");
-    }
+    };
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSaveButtonText("Saving..");
     try {
+      // Update deposit
+      if (!isNaN(parseFloat(formData.deposit))) {
+        const depositAmount = parseFloat(formData.deposit);
+        const newDeposit = {
+          depositAmount: depositAmount.toFixed(2),
+          date: new Date().toISOString().split("T")[0],
+        };
+
+        // Perform actions like updating state with the deposit
+        setDeposits((prevDeposits) => [...prevDeposits, newDeposit]);
+      }
       // Capture the form snapshot as a PDF
-      await captureFormSnapshot();
+      setTimeout(async () => {
+        await captureFormSnapshot();
+      }, 1000);
     } catch (error) {
       console.error("API Error:", error);
     }
   };
 
-  const saveDeposit = () => {
-    // Validate 'deposit' and perform actions like updating state or making API calls
-    if (isNaN(parseFloat(formData.deposit))) {
-      // Show an error or handle invalid input
-      return;
+  const handleKeyPress = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
     }
-
-    const depositAmount = parseFloat(formData.deposit);
-    const newDeposit = {
-      depositAmount: depositAmount.toFixed(2),
-      date: new Date().toISOString().split("T")[0],
-    };
-
-    // Perform actions like updating state with the deposit
-    setDeposits((prevDeposits) => [...prevDeposits, newDeposit]);
   };
 
   return (
@@ -426,6 +489,7 @@ const InvoicehtmlForm = () => {
                 name="headstoneName"
                 value={formData.headstoneName}
                 onChange={handleInputChange}
+                onKeyPress={handleKeyPress}
                 placeholder="Enter name to be written on Headstone"
                 required
               />
@@ -474,7 +538,18 @@ const InvoicehtmlForm = () => {
                           {cemeteryName}
                         </option>
                       ))}
+                      <option value="Other">Other</option>
                     </select>
+                    {selectedCemetery === "Other" && (
+                      <input
+                        type="text"
+                        name="customCemetery"
+                        value={customCemetery}
+                        onChange={handleInputChange}
+                        placeholder="Enter Cemetery Name"
+                        onKeyPress={handleKeyPress}
+                      />
+                    )}
                   </td>
                 </tr>
                 <tr className="input-row">
@@ -488,7 +563,7 @@ const InvoicehtmlForm = () => {
                       name="cemeteryAddress"
                       value={formData.cemeteryAddress}
                       onChange={handleInputChange}
-                      readOnly
+                      onKeyPress={handleKeyPress}
                     />
                   </td>
                   <th>
@@ -501,7 +576,7 @@ const InvoicehtmlForm = () => {
                       name="cemeteryContact"
                       value={formData.cemeteryContact}
                       onChange={handleInputChange}
-                      readOnly
+                      onKeyPress={handleKeyPress}
                     />
                   </td>
                   <th>
@@ -514,7 +589,7 @@ const InvoicehtmlForm = () => {
                       name="Cemeteryphone"
                       onChange={handleInputChange}
                       value={formData.Cemeteryphone}
-                      readOnly
+                      onKeyPress={handleKeyPress}
                     />
                   </td>
                 </tr>
@@ -529,7 +604,7 @@ const InvoicehtmlForm = () => {
                       name="zone"
                       value={formData.zone}
                       onChange={handleInputChange}
-                      readOnly
+                      onKeyPress={handleKeyPress}
                     />
                   </td>
                   <th>
@@ -542,6 +617,7 @@ const InvoicehtmlForm = () => {
                       name="lotOwner"
                       value={formData.lotOwner}
                       onChange={handleInputChange}
+                      onKeyPress={handleKeyPress}
                       placeholder="Enter Lot"
                     />
                   </td>
@@ -555,6 +631,7 @@ const InvoicehtmlForm = () => {
                       name="lotNumber"
                       value={formData.lotNumber}
                       onChange={handleInputChange}
+                      onKeyPress={handleKeyPress}
                       placeholder="Enter lot number"
                     />
                   </td>
@@ -572,6 +649,7 @@ const InvoicehtmlForm = () => {
                 name="customerName"
                 value={formData.customerName}
                 onChange={handleInputChange}
+                onKeyPress={handleKeyPress}
                 placeholder="Enter customer name"
               />
               <label htmlFor="phone">Phone:</label>
@@ -581,6 +659,7 @@ const InvoicehtmlForm = () => {
                 name="customerPhone"
                 value={formData.customerPhone}
                 onChange={handleInputChange}
+                onKeyPress={handleKeyPress}
                 placeholder="Enter customer phone"
               />
             </div>
@@ -592,6 +671,7 @@ const InvoicehtmlForm = () => {
                 name="customerEmail"
                 value={formData.customerEmail}
                 onChange={handleInputChange}
+                onKeyPress={handleKeyPress}
                 placeholder="Enter customer email"
               />
             </div>
@@ -615,6 +695,7 @@ const InvoicehtmlForm = () => {
                     style={{ width: "70px", height: "50px" }}
                     alt="Selected Model"
                   />
+                  <p>{formData.selectModelImage1}</p>
                 </div>
               )}
               <div className="model-color model-flex">
@@ -641,6 +722,7 @@ const InvoicehtmlForm = () => {
                   min={1}
                   value={formData.modelQty1}
                   onChange={handleInputChange}
+                  onKeyPress={handleKeyPress}
                   placeholder="Enter Quantity"
                 />
               </div>
@@ -651,6 +733,7 @@ const InvoicehtmlForm = () => {
                   name="modelPrice1"
                   value={formData.modelPrice1}
                   onChange={handleInputChange}
+                  onKeyPress={handleKeyPress}
                   placeholder="Enter Price"
                 />
               </div>
@@ -672,6 +755,7 @@ const InvoicehtmlForm = () => {
                     style={{ width: "70px", height: "50px" }}
                     alt="Selected Model"
                   />
+                  <p>{formData.selectModelImage2}</p>
                 </div>
               )}
               <div className="model-color model-flex">
@@ -698,6 +782,7 @@ const InvoicehtmlForm = () => {
                   min={1}
                   value={formData.modelQty2}
                   onChange={handleInputChange}
+                  onKeyPress={handleKeyPress}
                   placeholder="Enter Quantity"
                 />
               </div>
@@ -708,6 +793,7 @@ const InvoicehtmlForm = () => {
                   name="modelPrice2"
                   value={formData.modelPrice2}
                   onChange={handleInputChange}
+                  onKeyPress={handleKeyPress}
                   placeholder="Enter Price"
                 />
               </div>
@@ -729,6 +815,7 @@ const InvoicehtmlForm = () => {
                     style={{ width: "70px", height: "50px" }}
                     alt="Selected Model"
                   />
+                  <p>{formData.selectModelImage3}</p>
                 </div>
               )}
               <div className="model-color model-flex">
@@ -755,6 +842,7 @@ const InvoicehtmlForm = () => {
                   min={1}
                   value={formData.modelQty3}
                   onChange={handleInputChange}
+                  onKeyPress={handleKeyPress}
                   placeholder="Enter Quantity"
                 />
               </div>
@@ -764,6 +852,7 @@ const InvoicehtmlForm = () => {
                   type="text"
                   name="modelPrice3"
                   value={formData.modelPrice3}
+                  onKeyPress={handleKeyPress}
                   onChange={handleInputChange}
                   placeholder="Enter Price"
                 />
@@ -772,22 +861,16 @@ const InvoicehtmlForm = () => {
             <div className="model-row">
               <div className="model-input model-flex">
                 <label htmlFor="model">Model:</label>
-                <SelectModelButton
-                  type="button"
-                  onClick={() => handleOpenModal(4)}
-                >
-                  Select Model
-                </SelectModelButton>
+                <input
+                  type="text"
+                  name="model4"
+                  value={formData.model4}
+                  onChange={handleInputChange}
+                  onKeyPress={handleKeyPress}
+                  placeholder="Enter model"
+                  style={{ width: "108px" }}
+                />
               </div>
-              {formData.model4 !== "" && (
-                <div className="selected-image">
-                  <img
-                    src={formData.model4}
-                    style={{ width: "70px", height: "50px" }}
-                    alt="Selected Model"
-                  />
-                </div>
-              )}
               <div className="model-color model-flex">
                 <label htmlFor="model-color">Color:</label>
                 <select
@@ -812,6 +895,7 @@ const InvoicehtmlForm = () => {
                   min={1}
                   value={formData.modelQty4}
                   onChange={handleInputChange}
+                  onKeyPress={handleKeyPress}
                   placeholder="Enter Quantity"
                 />
               </div>
@@ -822,6 +906,7 @@ const InvoicehtmlForm = () => {
                   name="modelPrice4"
                   value={formData.modelPrice4}
                   onChange={handleInputChange}
+                  onKeyPress={handleKeyPress}
                   placeholder="Enter Price"
                 />
               </div>
@@ -834,6 +919,7 @@ const InvoicehtmlForm = () => {
                   name="model5"
                   value={formData.model5}
                   onChange={handleInputChange}
+                  onKeyPress={handleKeyPress}
                   placeholder="Enter model"
                   style={{ width: "108px" }}
                 />
@@ -862,6 +948,7 @@ const InvoicehtmlForm = () => {
                   min={1}
                   value={formData.modelQty5}
                   onChange={handleInputChange}
+                  onKeyPress={handleKeyPress}
                   placeholder="Enter Quantity"
                 />
               </div>
@@ -872,6 +959,7 @@ const InvoicehtmlForm = () => {
                   name="modelPrice5"
                   value={formData.modelPrice5}
                   onChange={handleInputChange}
+                  onKeyPress={handleKeyPress}
                   placeholder="Enter Price"
                 />
               </div>
@@ -950,7 +1038,8 @@ const InvoicehtmlForm = () => {
                       name="delivery"
                       value={formData.delivery}
                       onChange={handleInputChange}
-                      placeholder="Enter delivery amount"
+                      onKeyPress={handleKeyPress}
+                      placeholder="Enter amount"
                     />
                   </div>
                   <div className="foundation model-flex-right">
@@ -959,8 +1048,9 @@ const InvoicehtmlForm = () => {
                       type="number"
                       name="foundation"
                       value={formData.foundation}
+                      onKeyPress={handleKeyPress}
                       onChange={handleInputChange}
-                      placeholder="Enter foundation amount"
+                      placeholder="Enter amount"
                     />
                   </div>
                   <div className="discount model-flex-right">
@@ -969,6 +1059,7 @@ const InvoicehtmlForm = () => {
                       type="number"
                       name="discount"
                       value={formData.discount}
+                      onKeyPress={handleKeyPress}
                       onChange={handleInputChange}
                     />
                   </div>
@@ -988,9 +1079,9 @@ const InvoicehtmlForm = () => {
                       type="number"
                       name="deposit"
                       value={formData.deposit}
-                      onBlur={saveDeposit}
+                      onKeyPress={handleKeyPress}
                       onChange={handleInputChange}
-                      placeholder="Enter deposit amount"
+                      placeholder="Enter amount"
                     />
                   </div>
                   <div className="balance model-flex-right">
@@ -1039,6 +1130,7 @@ const InvoicehtmlForm = () => {
         cemeteryAddress={formData.cemeteryAddress}
         cemeteryContact={formData.cemeteryContact}
         lotNumber={formData.lotNumber}
+        customCemetery={formData?.customCemetery}
       />
     </Container>
   );

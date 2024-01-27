@@ -51,6 +51,12 @@ const WorkOrder = () => {
   useEffect(() => {
     if (location.state) {
       setFormData(location.state);
+      if(location.state?.cemeteryName==="Other"){
+        setFormData(prevData => ({
+          ...prevData,
+          cemeteryName: location.state?.customCemetery || "",
+        }));
+      }
       // Set uploaded images to cemeterySubmission
       if (location.state.cemeterySubmission) {
         const extractedBase64Images = location?.state?.cemeterySubmission?.map(
@@ -358,7 +364,7 @@ export default WorkOrder;
 
 const Container = styled.div`
   width: 100%;
-  max-width: 1200px;
+  max-width: 900px;
   margin: 0 auto;
 
   @media print {
@@ -442,7 +448,7 @@ const DetailValue = styled.p`
 `;
 
 const CustomerDesign = styled.div`
-  width: 80%;
+  width: 100%;
   margin-left: auto;
   margin-right: auto;
   background: #57facb;
@@ -525,7 +531,7 @@ const SubmitButton = styled.button`
 
 const CemeteryInfo = styled.div`
   background: #f5f5f5;
-  width: 80%;
+  width: 100%;
   margin: 20px auto;
   padding: 20px;
   border-radius: 10px;
