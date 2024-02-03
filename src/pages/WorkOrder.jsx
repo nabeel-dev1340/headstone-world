@@ -13,6 +13,7 @@ import InstallationForm from "../components/InstallationForm";
 import html2canvas from "html2canvas";
 import { useNavigate} from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { generateGoogleMapsLink } from "../utils/get_maps_url";
 
 const WorkOrder = () => {
   const [uploadedImages, setUploadedImages] = useState([]);
@@ -328,7 +329,7 @@ const WorkOrder = () => {
           </CemeteryDetail>
           <CemeteryDetail>
             <DetailTitle>Cemetery Address:</DetailTitle>
-            <DetailValue>{formData.cemeteryAddress}</DetailValue>
+            <DetailValue><a href={generateGoogleMapsLink(formData.cemeteryAddress)} target="blank">{formData.cemeteryAddress}</a></DetailValue>
           </CemeteryDetail>
           <CemeteryDetail>
             <DetailTitle>Cemetery Contact:</DetailTitle>
