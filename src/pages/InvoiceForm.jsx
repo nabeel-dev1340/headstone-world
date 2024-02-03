@@ -1004,7 +1004,9 @@ const InvoicehtmlForm = () => {
                       in billed amounts over the deposited funds.This does not
                       <br />
                       indicate a credit or amount owed to you.
+                      <br />
                     </em>
+                    <strong>Order left over 30 days incur a monthly storage charge of $50.</strong>
                   </p>
                 </div>
               </div>
