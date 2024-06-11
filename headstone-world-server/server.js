@@ -349,29 +349,25 @@ app.get("/workorderpdf", (req, res) => {
 
 app.post(
   "/save-invoice",
-  upload.fields([{ name: "pdf" }, { name: "pdf2" }]),
+  upload.fields([{ name: "pdf" }, { name: "jpg" }]),
   async (req, res) => {
     try {
       const pdfBuffer = req.files["pdf"][0].buffer; // Extract invoice PDF buffer
-      const pdfBuffer2 = req.files["pdf2"][0].buffer; // Extract work-order PDF buffer
+      const jpgBuffer = req.files["jpg"][0].buffer; // Extract work-order JPG buffer
       const { headstoneName, invoiceNo, deposit, username, paymentMethod } =
         req.body;
 
-      // Sanitize the headstoneName to remove disallowed characters
       const sanitizedHeadstoneName = sanitizeForFTP(headstoneName);
 
-      // Create a unique directory name
       const directoryName = `${sanitizedHeadstoneName.replace(
         / /g,
         "_"
       )}_${invoiceNo}`;
-      // Create the directory if it doesn't exist
       const directoryPath = path.join(__dirname, UPLOADS_DIR, directoryName);
       if (!fs.existsSync(directoryPath)) {
         fs.mkdirSync(directoryPath);
       }
 
-      // Determine the next available invoice file name
       let invoiceFileName = "invoice_v1.pdf";
       let fileIndex = 1;
       while (fs.existsSync(path.join(directoryPath, invoiceFileName))) {
@@ -379,33 +375,20 @@ app.post(
         invoiceFileName = `invoice_v${fileIndex}.pdf`;
       }
 
-      // // Determine the next available work order file name
-      // let workOrderFileName = "work-order_v1.pdf";
-      // let workOrderIndex = 1;
-      // while (fs.existsSync(path.join(directoryPath, workOrderFileName))) {
-      //   workOrderIndex++;
-      //   workOrderFileName = `work-order_v${workOrderIndex}.pdf`;
-      // }
-
-      // Set the file paths for saving
       const pdfFilePath = path.join(directoryPath, invoiceFileName);
-      const pdfFilePath2 = path.join(directoryPath, "work-order.pdf");
+      const jpgFilePath = path.join(directoryPath, "work-order.jpg");
       const jsonFilePath = path.join(directoryPath, "data.json");
 
-      // Save the PDF file to the specified file path
       fs.writeFileSync(pdfFilePath, pdfBuffer);
-      fs.writeFileSync(pdfFilePath2, pdfBuffer2);
+      fs.writeFileSync(jpgFilePath, jpgBuffer);
 
       let dataToSave = {};
 
-      // Check if data.json already exists
       if (fs.existsSync(jsonFilePath)) {
-        // Read existing data from the file
         const existingData = fs.readFileSync(jsonFilePath, "utf8");
         dataToSave = JSON.parse(existingData);
       }
 
-      // Check if 'deposits' field exists in req.body and is not empty
       if (deposit && deposit !== "") {
         const today = new Date().toISOString().split("T")[0];
         const newDeposit = {
@@ -414,31 +397,25 @@ app.post(
           paymentMethod: paymentMethod,
         };
 
-        // If 'deposits' array exists in existing data, append the new deposit
         if (dataToSave.hasOwnProperty("deposits")) {
           dataToSave.deposits.push(newDeposit);
         } else {
-          // If 'deposits' array doesn't exist, initialize it with the new deposit
           dataToSave.deposits = [newDeposit];
         }
       }
 
-      // Update other data if needed (e.g., 'data' from req.body)
       dataToSave.data = req.body;
       dataToSave.data.deposit = "";
 
-      // Save updated data as a JSON file
       fs.writeFileSync(jsonFilePath, JSON.stringify(dataToSave, null, 2));
 
       const baseDirectory = path.join(__dirname, UPLOADS_DIR);
-      // Create Work Order directory structure
       const workOrderDirectory = path.join(
         baseDirectory,
         directoryName,
         "Work Order"
       );
 
-      // Create Work Order directory if it doesn't exist
       if (!fs.existsSync(workOrderDirectory)) {
         fs.mkdirSync(workOrderDirectory, { recursive: true });
       }
@@ -465,7 +442,6 @@ app.post(
         "Cemetery Approval"
       );
 
-      // Create other directories
       if (!fs.existsSync(cemeterySubmissionDirectory)) {
         fs.mkdirSync(cemeterySubmissionDirectory, { recursive: true });
       }
@@ -484,16 +460,18 @@ app.post(
       if (!fs.existsSync(cemeteryApprovalDirectory)) {
         fs.mkdirSync(cemeteryApprovalDirectory, { recursive: true });
       }
-      // Respond with a success message
+
       res
         .status(200)
         .json({ message: "PDF file and data saved successfully." });
+
       const date = new Date();
       const formattedDate = date.toLocaleDateString("en-GB", {
         day: "2-digit",
         month: "2-digit",
         year: "numeric",
-      }); // Format the date
+      });
+
       bufferedData.push(formattedDate);
       const hours = date.getHours();
       const minutes = date.getMinutes();
@@ -507,6 +485,7 @@ app.post(
       bufferedData.push("invoice");
       bufferedData.push(deposit);
       console.log(bufferedData);
+
       const newData = {
         date: formattedDate,
         time: time,
@@ -515,21 +494,22 @@ app.post(
         type: "invoice",
         deposit: deposit,
       };
+
       fs.readFile("report.json", "utf8", (err, data) => {
         let reportData = [];
         if (err) {
           console.error("Error reading file:", err);
         } else {
           try {
-            reportData = data ? JSON.parse(data) : []; // Initialize with an empty array if file is empty
+            reportData = data ? JSON.parse(data) : [];
           } catch (parseError) {
             console.error("Error parsing JSON:", parseError);
             return;
           }
         }
-        // Push new data to the array
+
         reportData.push(newData);
-        // Write the updated array back to the JSON file
+
         fs.writeFile(
           "report.json",
           JSON.stringify(reportData, null, 2),
@@ -543,11 +523,10 @@ app.post(
           }
         );
       });
+
       writeToExcelInvoice();
     } catch (error) {
       console.error("Error while saving and uploading PDF:", error);
-
-      // If there's an error, respond with a 500 status code
       res.status(500).json({ error: "Internal Server Error." });
     }
   }
@@ -1020,11 +999,21 @@ app.post("/work-order", upload.single("workOrder"), async (req, res) => {
       headStoneName,
       invoiceNo,
       username,
-      requestDate,
-      followUpDate1,
-      followUpDate2,
-      approvedDate,
-      notesWork,
+      cemeteryDate,
+      cemeteryFollowUp1,
+      cemeteryFollowUp2,
+      cemeteryApprovedDate,
+      cemeteryNotes,
+      photoDate,
+      photoFollowUp1,
+      photoFollowUp2,
+      photoApprovedDate,
+      photoNotes,
+      bronzeDate,
+      bronzeFollowUp1,
+      bronzeFollowUp2,
+      bronzeApprovedDate,
+      bronzeNotes,
     } = req.body;
 
     // Create a unique directory name for Cemetery Submission
@@ -1126,12 +1115,24 @@ app.post("/work-order", upload.single("workOrder"), async (req, res) => {
         // Parse JSON data
         let jsonData = JSON.parse(data);
 
-        // Update values for keys requestDate, followUpDate1, followUpDate2, approvedDate, notesWork for each object
-        jsonData.data.requestDate = requestDate[0];
-        jsonData.data.followUpDate1 = followUpDate1[0];
-        jsonData.data.followUpDate2 = followUpDate2[0];
-        jsonData.data.approvedDate = approvedDate[0];
-        jsonData.data.notesWork = notesWork;
+        // Update values for keys for each object
+        jsonData.data.cemeteryDate = cemeteryDate[0];
+        jsonData.data.cemeteryFollowUp1 = cemeteryFollowUp1[0];
+        jsonData.data.cemeteryFollowUp2 = cemeteryFollowUp2[0];
+        jsonData.data.cemeteryApprovedDate = cemeteryApprovedDate[0];
+        jsonData.data.cemeteryNotes = cemeteryNotes;
+
+        jsonData.data.photoDate = photoDate[0];
+        jsonData.data.photoFollowUp1 = photoFollowUp1[0];
+        jsonData.data.photoFollowUp2 = photoFollowUp2[0];
+        jsonData.data.photoApprovedDate = photoApprovedDate[0];
+        jsonData.data.photoNotes = photoNotes;
+
+        jsonData.data.bronzeDate = bronzeDate[0];
+        jsonData.data.bronzeFollowUp1 = bronzeFollowUp1[0];
+        jsonData.data.bronzeFollowUp2 = bronzeFollowUp2[0];
+        jsonData.data.bronzeApprovedDate = bronzeApprovedDate[0];
+        jsonData.data.bronzeNotes = bronzeNotes;
 
         // Write the updated array back to the JSON file
         fs.writeFile(
@@ -1308,16 +1309,28 @@ app.get("/work-order", async (req, res) => {
           const imageFileNames = await fs.promises.readdir(imagePath);
           const promises = imageFileNames.map(async (imageName) => {
             const imageFilePath = path.join(imagePath, imageName);
-            const imageStats = await fs.promises.stat(imageFilePath);
-            const imageMetadata = {
-              fileName: imageName,
-              base64Data: await convertImageToBase64(imageFilePath),
-              createdAt: imageStats.birthtime, // Creation date
-              modifiedAt: imageStats.mtime, // Last modified date
-            };
-            return imageMetadata;
+            if (fs.existsSync(imageFilePath)) {
+              // Check if the image file still exists
+              const imageStats = await fs.promises.stat(imageFilePath);
+              const imageType = path
+                .extname(imageFilePath)
+                .slice(1)
+                .toLowerCase();
+              if (["jpg", "jpeg", "png", "gif"].includes(imageType)) {
+                // Ensure the file is an image
+                const imageMetadata = {
+                  fileName: imageName,
+                  base64Data: await convertImageToBase64(imageFilePath),
+                  createdAt: imageStats.birthtime, // Creation date
+                  modifiedAt: imageStats.mtime, // Last modified date
+                };
+                return imageMetadata;
+              }
+            }
+            return null;
           });
-          return Promise.all(promises);
+          const results = await Promise.all(promises);
+          return results.filter((image) => image !== null); // Filter out null values
         }
         return [];
       };
@@ -1345,7 +1358,6 @@ app.get("/work-order", async (req, res) => {
         cemeteryApproval,
         finalArt,
       ] = await Promise.all(tasks);
-      console.log(cemeteryApproval);
       return res.status(200).json({
         headStoneName: dataToUse.headstoneName,
         invoiceNo: dataToUse.invoiceNo,
@@ -1353,11 +1365,21 @@ app.get("/work-order", async (req, res) => {
         customerEmail: dataToUse.customerEmail,
         customerName: dataToUse.customerName,
         customerPhone: dataToUse.customerPhone,
-        requestDate: dataToUse.requestDate,
-        followUpDate1: dataToUse.followUpDate1,
-        followUpDate2: dataToUse.followUpDate2,
-        approvedDate: dataToUse.approvedDate,
-        notesWork: dataToUse.notesWork,
+        cemeteryDate: dataToUse.cemeteryDate,
+        cemeteryFollowUp1: dataToUse.cemeteryFollowUp1,
+        cemeteryFollowUp2: dataToUse.cemeteryFollowUp2,
+        cemeteryApprovedDate: dataToUse.cemeteryApprovedDate,
+        cemeteryNotes: dataToUse.cemeteryNotes,
+        photoDate: dataToUse.photoDate,
+        photoFollowUp1: dataToUse.photoFollowUp1,
+        photoFollowUp2: dataToUse.photoFollowUp2,
+        photoApprovedDate: dataToUse.photoApprovedDate,
+        photoNotes: dataToUse.photoNotes,
+        bronzeDate: dataToUse.bronzeDate,
+        bronzeFollowUp1: dataToUse.bronzeFollowUp1,
+        bronzeFollowUp2: dataToUse.bronzeFollowUp2,
+        bronzeApprovedDate: dataToUse.bronzeApprovedDate,
+        bronzeNotes: dataToUse.bronzeNotes,
         cemeteryName: dataToUse.cemetery,
         customCemetery: dataToUse.customCemetery,
         cemeteryAddress: dataToUse.cemeteryAddress,
@@ -1394,7 +1416,7 @@ app.get("/work-order", async (req, res) => {
     console.error(error);
     res
       .status(500)
-      .json({ error: "Internal server error.", details: error.message }); // Include error details in the response
+      .json({ error: "Internal server error.", details: error.message });
   }
 });
 
